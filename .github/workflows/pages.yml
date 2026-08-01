@@ -65,19 +65,37 @@ jobs:
       - name: レポートを生成する
         run: Rscript reports/render.R
 
+      # README と docs の本文に直接書いた数値を実データと突き合わせる。
+      # 図とレポートは毎回再生成されるので勝手に追従するが、本文はしない。
+      # olympicAthletes は更新中のパッケージなので、上流がデータを足すと
+      # 本文だけが静かに古くなる。ここで落として気づけるようにしている。
+      - name: 本文の数値を検証する
+        run: Rscript tests/check_claims.R
+
       - name: サイトを生成する
         run: Rscript site/build_site.R
 
-      # 生成物が意図通りか最低限の確認をする。
-      # 空のサイトをそのままデプロイしてしまう事故を防ぐ。
+      # 空のサイトや図の抜けたサイトをデプロイしてしまう事故を防ぐ。
       - name: 生成物を検査する
         run: |
-          test -f _site/index.html
-          test -f _site/reports/eda-report.html
-          test -f _site/assets/style.css
-          n=$(ls _site/figures/*.png | wc -l)
-          echo "figures: $n"
-          test "$n" -eq 15
+          set -eu
+          for f in _site/index.html _site/reports/eda-report.html \
+                   _site/docs/data-dictionary.html _site/docs/preprocessing.html \
+                   _site/docs/analysis-ideas.html _site/assets/style.css; do
+            test -s "$f" || { echo "欠落または空: $f"; exit 1; }
+          done
+          # 枚数は決め打ちにせず figures/ と一致するかを見る
+          src=$(find figures -name '*.png' | wc -l)
+          out=$(find _site/figures -name '*.png' | wc -l)
+          echo "figures: $src -> _site: $out"
+          test "$src" -gt 0
+          test "$src" -eq "$out"
+          # 生成 HTML に未解決の Markdown リンクが残っていないこと
+          if grep -rq 'href="[^"]*\.md[^"]*"' _site/; then
+            echo "サイト内に .md へのリンクが残っています:"
+            grep -ro 'href="[^"]*\.md[^"]*"' _site/ | sort -u
+            exit 1
+          fi
 
       - uses: actions/configure-pages@v6
 

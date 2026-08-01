@@ -141,7 +141,7 @@ medals_official |>
 
 ![](../figures/fig06_medal_composition.png)
 
-金メダル比率には 10 ポイント近い差がある。ただし柔道・ボクシング等は
+金メダル比率は上位 12 主体の中で 27% から 40% まで開く。ただし柔道・ボクシング等は
 銅を 2 個授与するため、そうした競技に強い国は構造的に銅の比率が上がる。
 
 ---
@@ -180,7 +180,9 @@ athletes |>
 
 ## 5. 選手の身体
 
-以下は **1960-2016 年**（`r fmt(nrow(filter(athletes, year >= 1960, year <= 2016, !is.na(height), !is.na(weight))))` 行）に限定した分析。
+以下は **1960-2016 年**に限定した分析
+（`r fmt(nrow(filter(athletes, year >= 1960, year <= 2016, !is.na(height), !is.na(weight), bmi >= 13, bmi <= 45)))` 行。
+`analysis/04_body_metrics.R` と同じく、身長体重の入力誤りとみられる BMI 外れ値を除いてある）。
 
 ![](../figures/fig10_sport_body_map.png)
 
@@ -196,7 +198,7 @@ athletes |>
 
 ![](../figures/fig12_height_trend.png)
 
-半世紀で男女とも 4-5cm 伸びている。ただしこれは一般人口の伸長と
+夏季で見ると男女とも 7cm 伸びている（線形近似でも +7.0 / +7.1 cm）。ただしこれは一般人口の伸長と
 種目構成の変化（背の高い競技の種目増）が混ざったもので、本レポートでは分離していない。
 
 ---

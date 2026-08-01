@@ -103,8 +103,12 @@ p11 <- body |>
 save_fig(p11, "fig11_weight_spread.png", height = 6.5)
 
 # --- fig12: 体格の時代変化 ---------------------------------------------------
+# 夏冬を 1 本にまとめてはいけない。1994 年以降は夏と冬が別の年に開催されるため、
+# 合算すると「夏の年」と「冬の年」を交互にプロットすることになり、
+# 競技構成の違いがギザギザとして現れる（体格の変化ではない）。
+# さらに 1960 年は夏冬の両方があり 2016 年は夏だけなので、端点の構成も揃わない。
 height_trend <- body |>
-  group_by(year, sex) |>
+  group_by(season, year, sex) |>
   summarise(
     median_height = median(height),
     q25 = quantile(height, 0.25),
@@ -112,22 +116,49 @@ height_trend <- body |>
     .groups = "drop"
   )
 
+# 見出しの数値は目分量で書かず、各シーズンの最初と最後の大会の差から出す。
+# 参考までに線形近似の傾きも添える（端点は年ごとの揺れを拾うため）。
+gains <- height_trend |>
+  group_by(season, sex) |>
+  summarise(
+    from = min(year), to = max(year),
+    gain = median_height[which.max(year)] - median_height[which.min(year)],
+    slope_span = unname(coef(lm(median_height ~ year))[2]) * (max(year) - min(year)),
+    .groups = "drop"
+  )
+summer <- filter(gains, season == "Summer")
+
+fmt_gain <- function(d) {
+  paste(sprintf("%s %+.0f cm", ifelse(d$sex == "Women", "女性", "男性"), d$gain),
+        collapse = " / ")
+}
+
 p12 <- ggplot(height_trend, aes(year, median_height, colour = sex, fill = sex)) +
   geom_ribbon(aes(ymin = q25, ymax = q75), alpha = 0.15, colour = NA) +
   geom_line(linewidth = 0.9) +
+  facet_wrap(~season, nrow = 1) +
   scale_colour_olympic(name = NULL) +
   scale_fill_olympic(guide = "none") +
-  scale_x_continuous(breaks = seq(1960, 2016, 8)) +
+  scale_x_continuous(breaks = seq(1960, 2016, 16)) +
   labs(
-    title = "選手の身長は半世紀で男女とも 4-5cm 伸びた",
-    subtitle = paste0("身長の中央値（帯は四分位範囲）。", BODY_YEARS[1], "-", BODY_YEARS[2],
-                      "。夏冬を合算"),
+    title = sprintf("夏季の選手の身長は %d 年間で %s 伸びた",
+                    summer$to[1] - summer$from[1], fmt_gain(summer)),
+    subtitle = paste0(
+      "身長の中央値（帯は四分位範囲）。", BODY_YEARS[1], "-", BODY_YEARS[2], "。\n",
+      "夏季と冬季は競技構成が違うため分けて描く（合算すると開催年が交互に来るだけでギザギザになる）"
+    ),
     x = NULL, y = "身長 (cm)",
-    caption = paste0(SOURCE_CAPTION,
-                     "\n一般人口の伸長と、種目構成の変化（背の高い競技の種目増）の両方が混ざる。切り分けは未実施。")
+    caption = paste0(
+      SOURCE_CAPTION,
+      sprintf("\n線形近似では夏季 女性 %+.1f cm・男性 %+.1f cm。",
+              summer$slope_span[summer$sex == "Women"],
+              summer$slope_span[summer$sex == "Men"]),
+      "\n一般人口の伸長と、種目構成の変化（背の高い競技の種目増）の両方が混ざる。切り分けは未実施。"
+    )
   ) +
-  theme_olympic()
+  theme_olympic() +
+  theme(panel.spacing = unit(1.1, "lines"))
 
-save_fig(p12, "fig12_height_trend.png")
+save_fig(p12, "fig12_height_trend.png", width = 10)
 
 message("04_body_metrics: 完了")

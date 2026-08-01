@@ -133,8 +133,18 @@ medals_official_long <- build_medals_official_long(medals_official)
 editions_clean <- build_editions()
 
 # 開催国の NOC。開催国優位の分析で使う。
-# editions$country（国名）を medal_table の country -> noc 対応で引く。
+# editions$country（国名）を medal_table の country -> noc 対応で引く
+# （country は medal_table 側と表記が一致し、複数 NOC に割れる国もないことを確認済み）。
+#
+# 注意: editions は games が一意ではない。1956 Summer だけメルボルンと
+# ストックホルム（馬術のみ・参加者 158 人）の 2 行がある。一方 medal_table は
+# 1956 Summer を 1 つにまとめているため、両方を開催国として扱うと
+# スウェーデンに大会全体のメダルシェアを帰属させてしまう。
+# 参加者数が多いほうを主開催地として 1 大会 1 行に落とす。
 host_noc <- editions_clean |>
+  group_by(games) |>
+  slice_max(participants, n = 1, with_ties = FALSE, na_rm = FALSE) |>
+  ungroup() |>
   select(games, year, season, host_country = country) |>
   left_join(
     medals_official |> distinct(country, noc) |> rename(host_country = country,
