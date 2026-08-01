@@ -197,9 +197,103 @@ ideas <- readLines("docs/analysis-ideas.md", warn = FALSE, encoding = "UTF-8")
 expect("analysis-ideas.md の項目数",
        sum(grepl("^### [A-E]-[0-9]+\\.", ideas)), 20)
 
+# --- 体格とメダル（README・レポート 1 章） -----------------------------------
+# analysis/05_body_medalist_gap.R と同じ手続きを再現する。
+scored <- athletes |>
+  filter(year >= 1960, year <= 2016, !is.na(height), !is.na(weight), !is.na(noc),
+         bmi >= 13, bmi <= 45) |>
+  group_by(event, sex, decade) |>
+  filter(n() >= 20, sd(height) > 0, sd(weight) > 0) |>
+  mutate(z_height = (height - mean(height)) / sd(height)) |>
+  ungroup() |>
+  mutate(cluster = paste(games, event, noc))
+
+cr_diff <- function(y, medalist, cluster) {
+  X <- cbind(1, as.numeric(medalist))
+  XtX_inv <- solve(crossprod(X))
+  beta <- XtX_inv %*% crossprod(X, y)
+  resid <- as.vector(y - X %*% beta)
+  meat <- matrix(0, 2, 2)
+  for (idx in split(seq_along(y), cluster)) {
+    s <- crossprod(X[idx, , drop = FALSE], resid[idx])
+    meat <- meat + tcrossprod(s)
+  }
+  G <- length(unique(cluster)); n <- length(y)
+  V <- (G / (G - 1)) * ((n - 1) / (n - 2)) * XtX_inv %*% meat %*% XtX_inv
+  c(est = beta[2], se = sqrt(V[2, 2]))
+}
+
+gaps <- scored |>
+  group_by(sport) |>
+  filter(n() >= 800, sum(is_medalist) >= 100) |>
+  group_modify(~ {
+    r <- cr_diff(.x$z_height, .x$is_medalist, .x$cluster)
+    tibble(cm = unname(r["est"]) * sd(.x$height), se_cm = unname(r["se"]) * sd(.x$height))
+  }) |>
+  ungroup() |>
+  mutate(sig = abs(cm / se_cm) > 1.96)
+
+expect("体格ギャップの対象競技数", nrow(gaps), 40)
+expect("差が有意な競技数", sum(gaps$sig), 26)
+expect("高身長が有利な競技数", sum(gaps$sig & gaps$cm > 0), 24)
+expect("低身長が有利な競技数", sum(gaps$sig & gaps$cm < 0), 2)
+expect("身長差が最大の競技", gaps$sport[which.max(gaps$cm)], "Swimming")
+expect("競泳の身長差(cm)", round(gaps$cm[gaps$sport == "Swimming"], 1), 4.4, tol = 0.05)
+expect("低身長が有利な競技（負で最大）",
+       gaps$sport[which.min(gaps$cm)], "Gymnastics")
+
+# --- 夏冬の偏り（README・レポート 3 章） -------------------------------------
+by_country <- medals_official |>
+  mutate(entity = coalesce(lineage_label, country)) |>
+  group_by(entity, season) |>
+  summarise(medals = sum(total), .groups = "drop") |>
+  pivot_wider(names_from = season, values_from = medals, values_fill = 0) |>
+  mutate(total = Summer + Winter, winter_share = 100 * Winter / total) |>
+  filter(total >= 120)
+expect("冬季比率で見る対象主体数", nrow(by_country), 32)
+expect("最も冬季寄りの主体", by_country$entity[which.max(by_country$winter_share)], "Norway")
+expect("ノルウェーの冬季比率(%)",
+       round(by_country$winter_share[by_country$entity == "Norway"]), 72)
+expect("全メダルに占める冬季の割合(%)",
+       round(100 * sum(medals_official$total[medals_official$season == "Winter"]) /
+               sum(medals_official$total), 1), 17.5, tol = 0.05)
+
+# --- 開催国特権 直近 30 年（README・レポート 4 章） ---------------------------
+recent_hosts <- he |> filter(year >= 1996) |> arrange(desc(lift))
+expect("直近30年の開催大会数", nrow(recent_hosts), 16)
+expect("特権を最も使い切った大会",
+       paste(recent_hosts$host_country[1], recent_hosts$year[1]), "United States 2002")
+expect("上位5大会のうち冬季の数",
+       sum(head(recent_hosts, 5)$season == "Winter"), 4)
+
+# --- 選手のキャリア（レポート 5 章） -----------------------------------------
+careers <- athletes |>
+  group_by(id) |>
+  summarise(n_games = n_distinct(games), .groups = "drop")
+expect("1 大会のみの選手の割合(%)", round(100 * mean(careers$n_games == 1)), 72)
+expect("5 大会以上に出た選手数", sum(careers$n_games >= 5), 840)
+
+# --- 競技の栄枯盛衰（README・レポート 6 章） ---------------------------------
+last_edition <- athletes |>
+  group_by(season) |>
+  summarise(last_year = max(year), .groups = "drop")
+sport_years <- athletes |>
+  distinct(sport, season, year) |>
+  add_count(sport, season, name = "n_years") |>
+  group_by(sport) |>
+  filter(season == season[which.max(n_years)]) |>
+  ungroup()
+gone <- sport_years |>
+  group_by(sport, season) |>
+  summarise(final_year = max(year), n_editions = n_distinct(year), .groups = "drop") |>
+  left_join(last_edition, by = "season") |>
+  filter(final_year < last_year)
+expect("実施されなくなった競技数", nrow(gone), 18)
+expect("消えた競技のうち最多実施", gone$sport[which.max(gone$n_editions)], "Art Competitions")
+
 # --- 図の枚数（README・ワークフロー） ----------------------------------------
 expect("figures/ の PNG 枚数",
-       length(list.files("figures", pattern = "\\.png$")), 15)
+       length(list.files("figures", pattern = "\\.png$")), 21)
 
 # --- 結果 --------------------------------------------------------------------
 message("")

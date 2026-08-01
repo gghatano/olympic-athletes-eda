@@ -20,14 +20,28 @@ REPO_URL <- "https://github.com/gghatano/olympic-athletes-eda"
 BLOB <- paste0(REPO_URL, "/blob/master/")
 
 # --- サイト構成 --------------------------------------------------------------
+# 並びがそのままナビの並びになる。
+# 面白い話（概要・レポート）を先に、データの制約と実装の話を後ろに置く。
 PAGES <- data.frame(
-  src = c("README.md", "reports/eda-report.md", "docs/data-dictionary.md",
-          "docs/preprocessing.md", "docs/analysis-ideas.md"),
-  out = c("index.html", "reports/eda-report.html", "docs/data-dictionary.html",
-          "docs/preprocessing.html", "docs/analysis-ideas.html"),
-  nav = c("概要", "分析レポート", "データ辞書", "前処理", "分析候補"),
-  title = c("olympic-athletes-eda", "分析レポート", "データ辞書",
-            "前処理の方針", "興味深い分析の候補"),
+  src = c("README.md",
+          "reports/eda-report.md",
+          "docs/data-quality.md",
+          "docs/preprocessing.md",
+          "docs/data-dictionary.md",
+          "docs/analysis-ideas.md",
+          "docs/engineering.md"),
+  out = c("index.html",
+          "reports/eda-report.html",
+          "docs/data-quality.html",
+          "docs/preprocessing.html",
+          "docs/data-dictionary.html",
+          "docs/analysis-ideas.html",
+          "docs/engineering.html"),
+  nav = c("概要", "レポート", "データの癖", "前処理", "データ辞書",
+          "分析候補", "開発"),
+  title = c("olympic-athletes-eda", "オリンピック選手データを読む",
+            "データの癖", "前処理の方針", "データ辞書",
+            "興味深い分析の候補", "開発"),
   stringsAsFactors = FALSE
 )
 

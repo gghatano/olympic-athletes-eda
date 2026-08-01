@@ -1,4 +1,4 @@
-# analysis/01_data_overview.R -------------------------------------------------
+# analysis/01_data_quality.R -------------------------------------------------
 # データの全体像: 大会ごとの規模と、欠損の年代分布。
 #
 # ここは「何が分析できて、何ができないか」を決める図。
@@ -9,7 +9,7 @@ ensure_packages()
 source("R/theme_olympic.R")
 source("R/prepare_data.R")
 
-message("01_data_overview: 実行中")
+message("01_data_quality: 実行中")
 
 # --- fig01: 大会規模の推移 ---------------------------------------------------
 participation <- athletes |>
@@ -38,7 +38,7 @@ p1 <- ggplot(participation, aes(year, rows, colour = season)) +
   ) +
   theme_olympic()
 
-save_fig(p1, "fig01_participation.png")
+save_fig(p1, "dq_participation.png")
 
 # --- fig02: 欠損率の年代推移 -------------------------------------------------
 # 分析設計を左右する図。
@@ -71,7 +71,7 @@ p2 <- ggplot(missing_by_decade, aes(decade, pct_na, colour = variable)) +
   ) +
   theme_olympic()
 
-save_fig(p2, "fig02_missingness.png")
+save_fig(p2, "dq_missingness.png")
 
 # --- fig03: 選手データのメダル網羅性の検証 -----------------------------------
 # 選手データから種目単位に集計したメダル数と、公式メダル表の総数を突き合わせる。
@@ -104,6 +104,6 @@ p3 <- ggplot(coverage, aes(year, coverage, colour = season)) +
   ) +
   theme_olympic()
 
-save_fig(p3, "fig03_medal_coverage.png")
+save_fig(p3, "dq_medal_coverage.png")
 
-message("01_data_overview: 完了")
+message("01_data_quality: 完了")

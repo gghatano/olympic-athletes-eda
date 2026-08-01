@@ -5,7 +5,7 @@ YAML が残り、GitHub 上で表として描画されてしまうため。
 タイトルは下の見出しが持つ。詳細は reports/render.R を参照。
 -->
 
-# olympicAthletes 探索的データ分析
+# オリンピック選手データを読む
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
@@ -21,256 +21,331 @@ fmt <- function(x) format(x, big.mark = ",")
 ```
 
 近代オリンピック全大会（1896 アテネ 〜 2026 ミラノ・コルティナ）の
-選手個票データ `olympicAthletes` の探索的分析。
+選手個票 `r fmt(nrow(athletes))` 行から見えたこと。
 
-図は `analysis/` の各スクリプトが生成したもの。
-本文中の数値はこのレポートを knit するたびに再計算される。
+図は `analysis/` の各スクリプトが生成したもので、
+本文中の数値はこのレポートを作り直すたびに再計算される。
 
-- データ辞書: [`docs/data-dictionary.md`](../docs/data-dictionary.md)
-- 前処理の方針: [`docs/preprocessing.md`](../docs/preprocessing.md)
-- 今後の分析候補: [`docs/analysis-ideas.md`](../docs/analysis-ideas.md)
-
----
-
-## 1. データの全体像
-
-```{r overview}
-tibble::tibble(
-  項目 = c("選手 × 種目の行数", "選手数 (id)", "大会数", "競技数", "種目数",
-           "年代範囲（夏季）", "年代範囲（冬季）"),
-  値 = c(
-    fmt(nrow(athletes)),
-    fmt(n_distinct(athletes$id)),
-    fmt(n_distinct(athletes$games)),
-    fmt(n_distinct(athletes$sport)),
-    fmt(n_distinct(athletes$event)),
-    paste(range(athletes$year[athletes$season == "Summer"]), collapse = " - "),
-    paste(range(athletes$year[athletes$season == "Winter"]), collapse = " - ")
-  )
-) |> kable()
-```
-
-粒度は **1 行 = 1 人の選手が 1 大会の 1 種目に出場したこと**。
-同じ選手が複数種目に出れば複数行、団体競技ならチーム全員分の行がある。
-
-![](../figures/fig01_participation.png)
-
-大会規模は 1990 年代に頭打ちになる。IOC が種目数と参加人数に上限を設けたため。
-点線は中止された 1916 / 1940 / 1944 年大会。
+> このデータには年代によって使える・使えない範囲がある。
+> メダルは 2018 年以降、身長体重は 1950 年代以前と 2018 年以降が欠けている。
+> 詳しくは **[データの癖](../docs/data-quality.md)** に分けて書いた。
+> 以下の分析はすべてその制約の中で行っている。
 
 ---
 
-## 2. このデータで何が言えないか
+## 1. 体格はメダルに効くのか
 
-分析を始める前に、欠損の構造を確認する。ここが後の全ての制約になる。
+このデータで最も「わかっていないこと」に近い問いから始める。
 
-![](../figures/fig02_missingness.png)
+競技ごとに体格が違うのは当たり前だが、**同じ競技の中で**背の高い選手が
+勝ちやすいのかは自明ではない。素朴に比べると 2 つの理由で誤る。
+陸上のメダリストが背が高く見えるのは背の高い種目（走高跳・砲丸投）の
+メダリストが多いだけかもしれないし、選手は時代とともに大型化するので
+メダリストの年代分布が違えば差が出る。
 
-`height` / `weight` の欠損率は 1950 年代まで 7 割前後、1960 年代に 6% へ急落し、
-**2018 年以降ふたたび 4-7 割に戻る**。
+そこで身長を **種目 × 性別 × 年代** のセル内で標準化してから比べた。
+「同じ種目・同じ性別・同じ年代で競った相手の中で、相対的にどうだったか」を見る。
 
-```{r missing-recent}
-athletes |>
-  filter(year >= 2014) |>
-  group_by(大会 = games) |>
-  summarise(
-    `行数` = fmt(n()),
-    `height 欠損` = sprintf("%.1f%%", 100 * mean(is.na(height))),
-    `noc 欠損` = sprintf("%.1f%%", 100 * mean(is.na(noc))),
-    .groups = "drop"
-  ) |>
-  arrange(大会) |>
-  kable(align = "lrrr")
-```
+![](../figures/body_medalist_gap.png)
 
-メダルも同じ問題を持つ。選手データから種目単位に集計したメダル数を
-公式 `medal_table` と突き合わせると、2018 年以降は 2〜3 割足りない。
+```{r gap-summary}
+# 図と同じ手続きを再現して、本文の数値を毎回計算し直す
+scored <- athletes |>
+  filter(year >= BODY_YEARS[1], year <= BODY_YEARS[2],
+         !is.na(height), !is.na(weight), !is.na(noc), bmi >= 13, bmi <= 45) |>
+  group_by(event, sex, decade) |>
+  filter(n() >= 20, sd(height) > 0, sd(weight) > 0) |>
+  mutate(z_height = (height - mean(height)) / sd(height)) |>
+  ungroup() |>
+  mutate(cluster = paste(games, event, noc))
 
-![](../figures/fig03_medal_coverage.png)
+cr_diff <- function(y, medalist, cluster) {
+  X <- cbind(1, as.numeric(medalist))
+  XtX_inv <- solve(crossprod(X))
+  beta <- XtX_inv %*% crossprod(X, y)
+  resid <- as.vector(y - X %*% beta)
+  meat <- matrix(0, 2, 2)
+  for (idx in split(seq_along(y), cluster)) {
+    s <- crossprod(X[idx, , drop = FALSE], resid[idx]); meat <- meat + tcrossprod(s)
+  }
+  G <- n_distinct(cluster); n <- length(y)
+  V <- (G / (G - 1)) * ((n - 1) / (n - 2)) * XtX_inv %*% meat %*% XtX_inv
+  c(est = beta[2], se = sqrt(V[2, 2]))
+}
 
-```{r coverage}
-event_medals |>
-  count(games, year, name = "選手データ由来") |>
-  left_join(
-    medals_official |> group_by(games) |> summarise(公式総数 = sum(total), .groups = "drop"),
-    by = "games"
-  ) |>
-  filter(year >= 2012) |>
-  mutate(網羅率 = sprintf("%.1f%%", 100 * `選手データ由来` / 公式総数)) |>
-  select(大会 = games, `選手データ由来`, 公式総数, 網羅率) |>
-  kable(align = "lrrr")
-```
+gaps <- scored |>
+  group_by(sport) |>
+  filter(n() >= 800, sum(is_medalist) >= 100) |>
+  group_modify(~ {
+    r <- cr_diff(.x$z_height, .x$is_medalist, .x$cluster)
+    tibble(cm = unname(r["est"]) * sd(.x$height),
+           se_cm = unname(r["se"]) * sd(.x$height))
+  }) |>
+  ungroup() |>
+  mutate(sig = abs(cm / se_cm) > 1.96)
 
-**したがって本レポートでは:**
-
-- 国別メダル数は公式 `medal_table` のみを使う
-- 選手データからのメダル集計は **2016 年まで**
-- 身体データの分析は **1960-2016 年** に限定する
-- 参加・性別（`sex` は全期間で欠損ゼロ）は全期間で使える
-
----
-
-## 3. 国とメダル
-
-![](../figures/fig04_top_entities.png)
-
-旧ソ連・東西ドイツ・チェコスロバキア・ユーゴスラビアは継承関係でまとめている
-（粗い集約であることに注意）。
-
-![](../figures/fig05_era_share.png)
-
-実数ではなくシェアで見る。種目数が時代とともに増えるため、実数では比較にならない。
-
-アメリカのシェアは 1904 年セントルイス大会の 33% を頂点に下がり続け、
-1990 年代以降は 1 割前後で安定している。
-ソ連は 1950 年代の初参加から 20 年で 2 割に達し、崩壊とともに落ちた。
-
-```{r era-numbers}
-medals_official |>
-  mutate(entity = coalesce(lineage_label, country)) |>
-  group_by(entity) |>
-  summarise(
-    `金` = sum(gold), `銀` = sum(silver), `銅` = sum(bronze),
-    `合計` = sum(total), .groups = "drop"
-  ) |>
-  slice_max(`合計`, n = 10) |>
-  mutate(`金の割合` = sprintf("%.1f%%", 100 * `金` / `合計`)) |>
-  rename(主体 = entity) |>
-  kable(align = "lrrrrr", format.args = list(big.mark = ","))
-```
-
-![](../figures/fig06_medal_composition.png)
-
-金メダル比率は上位 12 主体の中で 27% から 40% まで開く。ただし柔道・ボクシング等は
-銅を 2 個授与するため、そうした競技に強い国は構造的に銅の比率が上がる。
-
----
-
-## 4. 競技と性別
-
-![](../figures/fig07_gender_trend.png)
-
-```{r gender-milestones}
-athletes |>
-  filter(season == "Summer", year %in% c(1896, 1900, 1928, 1952, 1976, 1996, 2024)) |>
-  group_by(年 = year) |>
-  summarise(
-    `行数` = fmt(n()),
-    `女性の割合` = sprintf("%.1f%%", 100 * mean(sex == "Women")),
-    .groups = "drop"
-  ) |>
+bind_rows(
+  gaps |> filter(sig, cm > 0) |> slice_max(cm, n = 5),
+  gaps |> filter(sig, cm < 0) |> slice_min(cm, n = 5)
+) |>
+  transmute(競技 = sport,
+            `身長差` = sprintf("%+.1f cm", cm),
+            `95%信頼区間` = sprintf("%+.1f 〜 %+.1f", cm - 1.96 * se_cm, cm + 1.96 * se_cm)) |>
   kable(align = "lrr")
 ```
 
-1896 年アテネ大会に女性選手はいない。2024 年パリ大会で 48.3% に達した。
+`r sum(gaps$sig)` 競技で差がはっきり出た。うち高身長が有利なのが
+`r sum(gaps$sig & gaps$cm > 0)` 競技、低身長が有利なのが
+`r sum(gaps$sig & gaps$cm < 0)` 競技。
 
-![](../figures/fig09_events_by_gender.png)
+**競泳が突出している。** 同じ種目・同じ性別・同じ年代で競った相手より、
+メダリストは平均 `r sprintf("%.1f", gaps$cm[gaps$sport == "Swimming"])` cm 背が高い。
+水を捉える手足の長さがそのまま効く競技だと考えれば納得できる。
+リュージュが上位に来るのも、重力で滑る競技だからだろう。
 
-重要なのは、**男子種目を削ったのではなく女子種目を足してきた**こと。
-男子種目数はほぼ横ばいのまま、総種目数が伸びている。
+**逆を向くのは体操と重量挙げだけ**。どちらも身体を回す・持ち上げるために
+テコの腕が短いほうが有利になる競技で、方向が一致している。
 
-![](../figures/fig08_sport_gender_balance.png)
+![](../figures/body_gap_height_weight.png)
 
-ただし競技単位で見るとまだ揃っていない。女性のみの競技
-（アーティスティックスイミング）を除くと、女性比率が 5 割を超えるのは
-飛込・トライアスロン・卓球の 3 競技だけで、いずれも 50.5% 以下。
-下位はボクシング 32.0%、レスリング 32.8%、馬術 35.9% と 3 割台にとどまる。
+身長と体重を並べると、ほとんどの競技が右上（大きいほうが有利）に集まる。
+重量挙げが「背は低いが重い」側に単独で位置するのは階級制のためで、
+同じ階級なら体重は揃うので、差が出るのは体重より背の低さになる。
+
+> **これは因果ではない。** 「その種目に出られた選手の中での傾向」でしかなく、
+> 体格に恵まれない選手はそもそも五輪に来ていない。
+> 団体競技はチーム全員が同時にメダリストになるため、
+> (大会 × 種目 × NOC) をクラスタとした頑健標準誤差を使っている。
 
 ---
 
-## 5. 選手の身体
+## 2. 競技は体格の平面上に並ぶ
 
-以下は **1960-2016 年**に限定した分析
-（`r fmt(nrow(filter(athletes, year >= 1960, year <= 2016, !is.na(height), !is.na(weight), bmi >= 13, bmi <= 45)))` 行。
-`analysis/04_body_metrics.R` と同じく、身長体重の入力誤りとみられる BMI 外れ値を除いてある）。
+前節が「競技の中」の話だったのに対し、こちらは「競技の間」の話。
 
-![](../figures/fig10_sport_body_map.png)
+![](../figures/body_sport_map.png)
 
-競技は身長・体重の平面上にきれいに並ぶ。
 右上にバスケットボール・バレーボール・ボート・ボブスレー、
 左下に体操・飛込・アーティスティックスイミング。
 重量挙げだけが「背は低いが重い」領域に単独で位置する。
 
-![](../figures/fig11_weight_spread.png)
+![](../figures/body_weight_spread.png)
 
 中央値だけでは「全員が大きい競技」と「大小が混在する競技」を区別できない。
 階級制競技（重量挙げ・柔道・レスリング・ボクシング）は体重の幅が突出して広い。
 
-![](../figures/fig12_height_trend.png)
+![](../figures/body_height_trend.png)
 
-夏季で見ると男女とも 7cm 伸びている（線形近似でも +7.0 / +7.1 cm）。ただしこれは一般人口の伸長と
-種目構成の変化（背の高い競技の種目増）が混ざったもので、本レポートでは分離していない。
+半世紀で男女とも 7cm 伸びている。一般人口の伸長と種目構成の変化
+（背の高い競技の種目増）の両方が混ざっており、本レポートでは分離していない。
 
 ---
 
-## 6. 興味深い切り口
+## 3. 冬季に全てを賭けている国
 
-![](../figures/fig13_age_by_sport.png)
+通算メダル数の順位表は夏季の物量に支配される。
+冬季メダルは全体の 2 割弱しかないので、冬季だけで強い国は総合順位から見えない。
 
-競泳（20 歳）と馬術（34 歳）で年齢中央値が 14 歳離れる。
-馬術・射撃・セーリングは道具や馬の扱いが効くため選手寿命が長い。
-逆に体操・飛込・競泳は 10 代後半から 20 代前半が中心。
+![](../figures/medals_season_specialists.png)
 
-![](../figures/fig14_host_advantage.png)
+```{r season-specialists}
+by_country <- medals_official |>
+  mutate(entity = coalesce(lineage_label, country)) |>
+  group_by(entity, season) |>
+  summarise(medals = sum(total), .groups = "drop") |>
+  pivot_wider(names_from = season, values_from = medals, values_fill = 0) |>
+  mutate(total = Summer + Winter, winter_share = 100 * Winter / total) |>
+  filter(total >= 120)
 
-```{r host}
+bind_rows(slice_max(by_country, winter_share, n = 4),
+          slice_min(by_country, winter_share, n = 4)) |>
+  transmute(主体 = entity, 夏季 = Summer, 冬季 = Winter,
+            `冬季の割合` = sprintf("%.0f%%", winter_share)) |>
+  kable(align = "lrrr", format.args = list(big.mark = ","))
+```
+
+ノルウェーは自国メダルの 7 割強が冬季。一方でキューバ・ギリシャ・ケニアは
+冬季メダルが 1 つもない。気候と地形の制約がほぼそのまま出ている。
+
+![](../figures/medals_top_countries.png)
+
+シーズンごとに順位表を分けると、顔ぶれが入れ替わる。
+
+![](../figures/medals_era_share.png)
+
+年代ごとのシェアも夏冬で別の物語が動く。実数ではなくシェアで見るのは、
+種目数が時代とともに増えるため。
+
+> Germany (all) の 1970-80 年代の山は、**西ドイツと東ドイツを足したもの**で
+> 単一国の成績ではない（1968-1988 の 10 大会で両者は別々に出場している）。
+
+![](../figures/medals_composition.png)
+
+金メダルの比率には国によって 10 ポイント以上の差がある。
+
+---
+
+## 4. 開催国の特権を使い切ったのは誰か
+
+開催国がメダルを増やすこと自体は驚きではない。
+開催国には出場枠が自動的に与えられ、実施種目の選定にも関与できる。
+面白いのは**その特権をどれだけ使い切ったか**の差のほうなので、
+直近 30 年に絞って順位をつけた。
+
+![](../figures/host_top5_recent.png)
+
+```{r host-top5}
 edition_totals <- medals_official |>
   group_by(games, year, season) |>
   summarise(all_medals = sum(total), .groups = "drop")
 shares <- medals_official |>
   left_join(edition_totals, by = c("games", "year", "season")) |>
   mutate(share = 100 * total / all_medals) |>
-  select(noc, year, season, share)
+  select(noc, year, season, share, total)
 he <- host_noc |>
   filter(!is.na(host_noc)) |>
   rowwise() |>
   mutate(
-    home = {
-      v <- shares$share[shares$noc == host_noc & shares$year == year & shares$season == season]
-      if (length(v) == 0) NA_real_ else v[1]
-    },
-    baseline = {
-      v <- shares$share[shares$noc == host_noc & shares$season == season &
-                          shares$year != year & abs(shares$year - year) <= 9]
-      if (length(v) == 0) NA_real_ else mean(v)
-    }
+    home = {v <- shares$share[shares$noc == host_noc & shares$year == year &
+                                shares$season == season]
+            if (length(v) == 0) NA_real_ else v[1]},
+    home_medals = {v <- shares$total[shares$noc == host_noc & shares$year == year &
+                                       shares$season == season]
+                   if (length(v) == 0) NA_integer_ else v[1]},
+    baseline = {v <- shares$share[shares$noc == host_noc & shares$season == season &
+                                    shares$year != year & abs(shares$year - year) <= 9]
+                if (length(v) == 0) NA_real_ else mean(v)}
   ) |>
   ungroup() |>
   filter(!is.na(home), !is.na(baseline)) |>
-  mutate(lift = home - baseline)
+  mutate(lift = home - baseline, ratio = home / baseline)
 
-tibble::tibble(
-  項目 = c("比較できた大会数", "自国開催でシェアが上振れした割合",
-           "上振れ幅の中央値", "1960 年以降に限った上振れ幅の中央値"),
-  値 = c(
-    as.character(nrow(he)),
-    sprintf("%.0f%%", 100 * mean(he$lift > 0)),
-    sprintf("%+.1f pt", median(he$lift)),
-    sprintf("%+.1f pt", median(he$lift[he$year >= 1960]))
-  )
-) |> kable()
+he |>
+  filter(year >= 1996) |>
+  slice_max(lift, n = 5) |>
+  transmute(
+    大会 = paste(host_country, year), シーズン = as.character(season),
+    `前後大会の平均` = sprintf("%.1f%%", baseline),
+    `自国開催時` = sprintf("%.1f%%", home),
+    `伸び` = sprintf("%+.1f pt", lift),
+    `倍率` = sprintf("%.1f倍", ratio),
+    `獲得数` = home_medals
+  ) |>
+  kable(align = "llrrrrr")
 ```
 
-開催国はほぼ必ずメダルシェアを伸ばす。ただし初期大会は参加国が少なく
-開催国の比率が構造的に高いため、幅は年代とともに小さくなる。
-これは相関であって因果ではない（出場枠の優遇・強化投資・実施種目の選択が混ざる）。
+**上位 5 大会のうち 4 つが冬季**。冬季は参加国も種目数も少ないぶん、
+開催国が実施種目を厚くしたときの効き方が大きい。
+長野 1998 の日本は 2.0% から 4.9% へ 2.4 倍に伸ばしている。
 
-![](../figures/fig15_medal_spread.png)
+![](../figures/host_timeline.png)
 
-メダルを取る国は増え続けている。
+全期間で見ると、開催国が伸ばす確率は
+`r sprintf("%.0f%%", 100 * mean(he$lift > 0))` と非常に高い一方、
+伸び幅そのものは年々小さくなっている。初期大会は参加国が少なく、
+開催国の比率が構造的に高かったため。
+
+> 相関であって因果ではない。出場枠の優遇・強化投資・実施種目の選択が混ざっている。
+> これを分解するのが今後の課題（[分析候補 A-5](../docs/analysis-ideas.md)）。
 
 ---
 
-## 7. 次に掘るべき問い
+## 5. 五輪に何回出られるか
 
-[`docs/analysis-ideas.md`](../docs/analysis-ideas.md) に 20 件を整理した。
-優先度が高いものを 3 つだけ挙げる。
+```{r careers}
+careers <- athletes |>
+  group_by(id) |>
+  summarise(n_games = n_distinct(games), .groups = "drop")
+```
+
+選手の `r sprintf("%.0f%%", 100 * mean(careers$n_games == 1))` は
+生涯に 1 度しか五輪に出ていない。5 大会以上出た選手は
+`r fmt(sum(careers$n_games >= 5))` 人だけ。
+
+![](../figures/athletes_careers.png)
+
+競技よりもシーズンで決まる。冬季競技は競技人口が少なく、
+一度代表になると座を維持しやすい。
+
+![](../figures/athletes_age_by_sport.png)
+
+年齢の幅も競技で大きく違う。馬術・射撃・セーリングは
+道具や馬の扱いが効くぶん選手寿命が長い。
+
+---
+
+## 6. 消えた競技、現れた競技
+
+![](../figures/sports_lifespan.png)
+
+```{r sports-gone}
+last_edition <- athletes |> group_by(season) |>
+  summarise(last_year = max(year), .groups = "drop")
+sport_years <- athletes |> distinct(sport, season, year) |>
+  add_count(sport, season, name = "n_years") |>
+  group_by(sport) |> filter(season == season[which.max(n_years)]) |> ungroup()
+gone <- sport_years |>
+  group_by(sport, season) |>
+  summarise(first_year = min(year), final_year = max(year),
+            n_editions = n_distinct(year), .groups = "drop") |>
+  left_join(last_edition, by = "season") |>
+  filter(final_year < last_year)
+
+gone |> slice_max(n_editions, n = 6) |>
+  transmute(競技 = sport, シーズン = as.character(season),
+            期間 = paste0(first_year, "-", final_year),
+            `実施大会数` = n_editions) |>
+  kable(align = "llrr")
+```
+
+`r n_distinct(athletes$sport)` 競技のうち `r nrow(gone)` 競技はもう実施されていない。
+
+**芸術競技**（1912-1948、7 大会）では絵画・彫刻・文学・音楽・建築に
+メダルが出ていた。綱引きも 1900-1920 は正式競技だった。
+野球とソフトボールは 2020 年東京で復活したが 2024 年でまた外れている。
+
+一方でスケートボード・サーフィン・スポーツクライミング・ブレイキンは
+2020 年代に入ってきたばかりで、線がまだ右端にしかない。
+
+---
+
+## 7. 女子種目を「足して」きた
+
+![](../figures/gender_trend.png)
+
+```{r gender-milestones}
+athletes |>
+  filter(season == "Summer", year %in% c(1896, 1900, 1928, 1952, 1976, 1996, 2024)) |>
+  group_by(年 = year) |>
+  summarise(`行数` = fmt(n()),
+            `女性の割合` = sprintf("%.1f%%", 100 * mean(sex == "Women")),
+            .groups = "drop") |>
+  kable(align = "lrr")
+```
+
+![](../figures/gender_events.png)
+
+重要なのは、**男子種目を削ったのではなく女子種目を足してきた**こと。
+男子種目数はほぼ横ばいのまま、総種目数が伸びている。
+
+![](../figures/gender_by_sport.png)
+
+ただし競技単位ではまだ揃っていない。女性のみの競技を除くと、
+女性比率が 5 割を超えるのは飛込・トライアスロン・卓球の 3 競技だけ。
+
+---
+
+## 8. 次に掘るべき問い
+
+[分析候補](../docs/analysis-ideas.md) に 20 件を整理した。優先度が高いのは 3 つ。
 
 1. **2018 年以降の選手個票の欠損は上流の取り込み漏れか**（`E-1`）。
-   もし解消するなら、2016 年で切る制約が外れて分析の射程が大きく広がる。
-2. **夏季に強い国・冬季に強い国**（`A-2`）。既存の前処理でそのまま書ける。
-3. **同じ種目の中で体格は成績に効くか**（`C-1`）。
-   このデータで最も「わかっていないこと」に近い問い。生存バイアスの扱いが鍵。
+   選手も種目も入っているのにメダル列だけが空なので、その可能性が高い。
+   解消すれば 2016 年で切る制約が外れ、分析の射程が大きく広がる。
+2. **開催国優位の分解**（`A-5`）。出場枠・強化投資・種目選定のどれが効いているか。
+3. **種目内での体格と成績の関係をさらに詰める**（`C-1`）。
+   本レポートの 1 章は「メダリストか否か」の 2 値だが、
+   順位や記録まで見れば効き方の形が分かる。
 
 ```{r session, echo=TRUE}
 sessionInfo()$R.version$version.string

@@ -38,7 +38,7 @@ p7 <- ggplot(gender_trend, aes(year, share_women, colour = season)) +
   ) +
   theme_olympic()
 
-save_fig(p7, "fig07_gender_trend.png")
+save_fig(p7, "gender_trend.png")
 
 # --- fig08: 競技ごとの男女比 -------------------------------------------------
 # 直近 3 大会（夏季 2016-2024）に限る。過去を含めると、
@@ -82,7 +82,7 @@ p8 <- ggplot(recent_sports, aes(share_women, sport)) +
   ) +
   theme_olympic()
 
-save_fig(p8, "fig08_sport_gender_balance.png", height = 7)
+save_fig(p8, "gender_by_sport.png", height = 7)
 
 # --- fig09: 種目構成の変化 ---------------------------------------------------
 # 「女子種目が増えた」のか「男子種目が減った」のかを分ける。
@@ -105,6 +105,6 @@ p9 <- ggplot(events_by_gender, aes(year, n_events, fill = event_gender)) +
   ) +
   theme_olympic()
 
-save_fig(p9, "fig09_events_by_gender.png", width = 10)
+save_fig(p9, "gender_events.png", width = 10)
 
 message("03_sport_gender: 完了")

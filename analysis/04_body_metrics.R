@@ -66,7 +66,7 @@ p10 <- ggplot(sport_body, aes(height, weight)) +
   ) +
   theme_olympic()
 
-save_fig(p10, "fig10_sport_body_map.png", width = 10, height = 6.5)
+save_fig(p10, "body_sport_map.png", width = 10, height = 6.5)
 
 # --- fig11: 体格の広がりが大きい競技 -----------------------------------------
 # 中央値だけでは「全員が大きい競技」と「大小が混在する競技」を区別できない。
@@ -100,7 +100,7 @@ p11 <- body |>
   ) +
   theme_olympic()
 
-save_fig(p11, "fig11_weight_spread.png", height = 6.5)
+save_fig(p11, "body_weight_spread.png", height = 6.5)
 
 # --- fig12: 体格の時代変化 ---------------------------------------------------
 # 夏冬を 1 本にまとめてはいけない。1994 年以降は夏と冬が別の年に開催されるため、
@@ -159,6 +159,6 @@ p12 <- ggplot(height_trend, aes(year, median_height, colour = sex, fill = sex)) 
   theme_olympic() +
   theme(panel.spacing = unit(1.1, "lines"))
 
-save_fig(p12, "fig12_height_trend.png", width = 10)
+save_fig(p12, "body_height_trend.png", width = 10)
 
 message("04_body_metrics: 完了")

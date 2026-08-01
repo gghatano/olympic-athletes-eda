@@ -96,6 +96,17 @@ jobs:
             grep -ro 'href="[^"]*\.md[^"]*"' _site/ | sort -u
             exit 1
           fi
+          # 本文が参照している図が実在すること。
+          # 図のファイル名を変えたときに参照の直し漏れを拾う。
+          missing=0
+          for f in $(grep -roh 'src="[^"]*\.png"' _site/ \
+                     | sed 's/src="//;s/"//' | sed 's|.*/||' | sort -u); do
+            if [ ! -f "figures/$f" ]; then
+              echo "参照されているが存在しない図: $f"
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
 
       - uses: actions/configure-pages@v6
 
