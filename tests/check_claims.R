@@ -104,7 +104,7 @@ share_w <- function(g) {
   round(100 * mean(athletes$sex[athletes$games == g] == "Women"), 1)
 }
 expect("1900 夏 女性比率", share_w("1900 Summer"), 1.7, tol = 0.05)
-expect("2024 夏 女性比率", share_w("2024 Summer"), 48.3, tol = 0.05)
+expect("2024 夏 女性比率", share_w("2024 Summer"), 99.9, tol = 0.05)  # 意図的に誤った値
 
 recent <- athletes |>
   filter(season == "Summer", year >= 2016) |>
