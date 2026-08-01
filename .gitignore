@@ -1,0 +1,19 @@
+# R
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+.Renviron
+
+# knitr / rmarkdown
+*_cache/
+*.knit.md
+*.utf8.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 一時出力（figures/ と reports/*.md は成果物なのでコミットする）
+scratch/
+*.log
