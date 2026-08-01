@@ -17,3 +17,6 @@ Thumbs.db
 # 一時出力（figures/ と reports/*.md は成果物なのでコミットする）
 scratch/
 *.log
+
+# サイトのビルド成果物。CI が毎回作り直して Pages に出すのでコミットしない
+_site/

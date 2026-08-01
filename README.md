@@ -9,7 +9,9 @@ R で探索する分析リポジトリ。
 「直近 5 大会（2018 冬 〜 2026 冬）の選手個票は欠損が大きく、
 そのままでは使えない」ことが分かった。
 
-- 📊 **[分析レポート（reports/eda-report.md）](reports/eda-report.md)** — 図と数値をまとめたもの。まずここを読む
+🌐 **公開サイト: <https://gghatano.github.io/olympic-athletes-eda/>**（`master` への push ごとに GitHub Actions が再生成）
+
+- 📊 **[分析レポート](reports/eda-report.md)** — 図と数値をまとめたもの。まずここを読む
 - 📖 [データ辞書](docs/data-dictionary.md) / [前処理の方針](docs/preprocessing.md) / [今後の分析候補](docs/analysis-ideas.md)
 
 ---
@@ -45,12 +47,20 @@ Rscript run_all.R
 
 # 2. レポートを再生成する（任意）
 Rscript reports/render.R
+
+# 3. 公開サイトを手元で作る（任意）。_site/index.html を開けば確認できる
+Rscript site/build_site.R
 ```
 
 `run_all.R` は `figures/` に 15 枚の PNG を出力する。所要時間は 1 分程度。
 
 依存パッケージ（`R/setup.R` が未導入のものだけ入れる）:
-`olympicAthletes`, `dplyr`, `tidyr`, `stringr`, `forcats`, `ggplot2`, `scales`, `ragg`
+`olympicAthletes`, `dplyr`, `tidyr`, `stringr`, `forcats`, `ggplot2`, `scales`,
+`ragg`, `systemfonts`, `commonmark`
+
+図のラベルに日本語を使うため、**日本語フォントが 1 つ必要**。
+Windows / macOS は標準搭載。Debian 系なら `sudo apt-get install -y fonts-noto-cjk`。
+見つからない場合は豆腐文字を出さずにエラーで止まる（`R/theme_olympic.R`）。
 
 個別のスクリプトだけ動かしたい場合も、**リポジトリのルートから**実行する:
 
@@ -69,6 +79,7 @@ HTML 化する必要がないので、pandoc（R 単体には同梱されない�
 ## リポジトリ構成
 
 ```
+├── .github/workflows/pages.yml  図・レポート・サイトを作り直して Pages に公開
 ├── run_all.R                    全分析スクリプトを順に実行
 ├── R/
 │   ├── setup.R                  依存パッケージの確認・インストール、パス解決
@@ -88,11 +99,31 @@ HTML 化する必要がないので、pandoc（R 単体には同梱されない�
 │   ├── data-dictionary.md       全列の型・欠損率・値域と注意点
 │   ├── preprocessing.md         前処理の方針とその根拠
 │   └── analysis-ideas.md        今後掘れる問い 20 件
+├── site/
+│   ├── build_site.R             Markdown -> 静的サイト（_site/）
+│   └── style.css                サイトの配色（図と同じトークン）
 └── figures/                     生成された図（コミット対象）
 ```
 
 `figures/` と `reports/eda-report.md` は生成物だが、
 GitHub 上で結果を読めるようにするためコミットしている。
+`_site/` は CI が毎回作り直すのでコミットしない。
+
+### 公開の仕組み
+
+`master` に push すると `.github/workflows/pages.yml` が
+
+1. 日本語フォント（`fonts-noto-cjk`）を入れる
+2. `run_all.R` で図を、`reports/render.R` でレポートを**再生成**する
+3. `site/build_site.R` でサイトを組み立てる
+4. GitHub Pages に公開する
+
+を実行する。図をリポジトリのものではなく毎回作り直しているので、
+スクリプトを直したのに図が古いままという状態になれない。
+R スクリプトが壊れていれば CI が落ちるため、実質的にテストも兼ねている。
+
+サイト生成にも pandoc は使わず、R の `commonmark` で Markdown を HTML にしている
+（`reports/render.R` と同じ理由。手元と CI で同じ手順が動く）。
 
 ---
 

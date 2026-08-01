@@ -1,0 +1,238 @@
+/* site/style.css -------------------------------------------------------------
+   サイトの配色は R/theme_olympic.R と同じトークンを使う。
+   図の地色（#fcfcfb）とページの地色を合わせることで、PNG が紙に貼った四角に
+   見えないようにしている。
+
+   ダークモードは用意していない。図が light 固定の PNG なので、
+   ページだけ反転させると図が浮くため。
+   ------------------------------------------------------------------------- */
+
+:root {
+  --surface: #fcfcfb;
+  --plane: #f9f9f7;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --link: #2a78d6;
+  --link-strong: #184f95;
+  --accent: #eb6834;
+  --wrap: 54rem;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans",
+    "Noto Sans JP", Meiryo, sans-serif;
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.wrap {
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+/* --- ヘッダ --- */
+.site-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--grid);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.header-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1.5rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+  letter-spacing: -0.01em;
+}
+
+.site-header nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.1rem;
+  font-size: 0.9rem;
+}
+
+.site-header nav a {
+  color: var(--ink-2);
+  text-decoration: none;
+  padding-bottom: 2px;
+  border-bottom: 2px solid transparent;
+}
+
+.site-header nav a:hover { color: var(--link); }
+
+.site-header nav a.active {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+/* --- 本文 --- */
+main {
+  background: var(--surface);
+  padding-top: 2.5rem;
+  padding-bottom: 3.5rem;
+  min-height: 60vh;
+}
+
+main.wrap {
+  max-width: var(--wrap);
+  border-left: 1px solid var(--grid);
+  border-right: 1px solid var(--grid);
+}
+
+h1, h2, h3, h4 {
+  line-height: 1.4;
+  scroll-margin-top: 4.5rem;
+}
+
+h1 {
+  font-size: 1.85rem;
+  letter-spacing: -0.015em;
+  margin: 0 0 1.5rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  margin: 3rem 0 1rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--grid);
+}
+
+h3 { font-size: 1.1rem; margin: 2.2rem 0 0.7rem; }
+h4 { font-size: 1rem; margin: 1.8rem 0 0.6rem; color: var(--ink-2); }
+
+p { margin: 0 0 1.1rem; }
+
+a { color: var(--link); text-underline-offset: 0.15em; }
+a:hover { color: var(--link-strong); }
+
+.anchor {
+  float: left;
+  margin-left: -1.1em;
+  padding-right: 0.35em;
+  color: var(--axis);
+  text-decoration: none;
+  opacity: 0;
+  font-weight: 400;
+}
+
+h1:hover .anchor, h2:hover .anchor,
+h3:hover .anchor, h4:hover .anchor { opacity: 1; }
+
+@media (max-width: 46rem) {
+  .anchor { display: none; }
+}
+
+ul, ol { padding-left: 1.4rem; margin: 0 0 1.1rem; }
+li { margin-bottom: 0.35rem; }
+
+strong { font-weight: 700; }
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--grid);
+  margin: 2.5rem 0;
+}
+
+blockquote {
+  margin: 1.5rem 0;
+  padding: 0.2rem 0 0.2rem 1rem;
+  border-left: 3px solid var(--axis);
+  color: var(--ink-2);
+}
+
+/* --- コード --- */
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  background: var(--plane);
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+pre {
+  background: var(--plane);
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+  padding: 0.9rem 1.1rem;
+  overflow-x: auto;
+  line-height: 1.6;
+}
+
+pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.83rem;
+}
+
+/* --- 表 --- */
+/* 横に長い表はページ全体ではなく表だけをスクロールさせる */
+table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0 0 1.4rem;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+th, td {
+  border: 1px solid var(--grid);
+  padding: 0.4rem 0.7rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+thead th {
+  background: var(--plane);
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+tbody tr:hover { background: #f6f6f3; }
+
+/* --- 図 --- */
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.5rem auto;
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+}
+
+/* --- フッタ --- */
+.site-footer {
+  border-top: 1px solid var(--grid);
+  padding: 2rem 0 3rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.site-footer p { margin: 0 0 0.4rem; }
+.site-footer a { color: var(--ink-2); }
+.site-footer a:hover { color: var(--link); }

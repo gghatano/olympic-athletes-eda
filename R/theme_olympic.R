@@ -42,8 +42,41 @@ PAL <- list(
   seq = c("#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b")
 )
 
-theme_olympic <- function(base_size = 12) {
-  theme_minimal(base_size = base_size) +
+# --- フォント ----------------------------------------------------------------
+# 図のラベルは日本語を含む。systemfonts の既定は Arial 等の欧文フォントで、
+# 日本語はグリフフォールバックに頼ることになる。フォールバックは環境によって
+# 効いたり効かなかったりする（CI の Linux ランナーには日本語フォントが
+# 入っていないため豆腐文字になる）ので、使う書体を明示して解決する。
+#
+# 見つからなければ黙って豆腐文字を出さずに落とす。
+resolve_jp_family <- function() {
+  candidates <- c(
+    "Noto Sans JP", "Noto Sans CJK JP", "Source Han Sans JP",  # Linux / 共通
+    "Yu Gothic", "Meiryo", "BIZ UDPGothic", "MS Gothic",       # Windows
+    "Hiragino Sans", "Hiragino Kaku Gothic ProN"               # macOS
+  )
+  available <- unique(systemfonts::system_fonts()$family)
+  hit <- candidates[candidates %in% available]
+  if (length(hit) == 0) {
+    stop(
+      "図のラベルに使う日本語フォントが見つかりません。\n",
+      "  Debian/Ubuntu: sudo apt-get install -y fonts-noto-cjk\n",
+      "  macOS/Windows: 通常は標準搭載。systemfonts::system_fonts() で確認してください。",
+      call. = FALSE
+    )
+  }
+  hit[1]
+}
+
+BASE_FAMILY <- resolve_jp_family()
+
+# geom_text / annotate("text") はテーマの書体を継承せずデバイス既定を使うため、
+# 図中の注記も日本語が出るよう geom の既定値ごと差し替える。
+update_geom_defaults("text", list(family = BASE_FAMILY))
+update_geom_defaults("label", list(family = BASE_FAMILY))
+
+theme_olympic <- function(base_size = 12, base_family = BASE_FAMILY) {
+  theme_minimal(base_size = base_size, base_family = base_family) +
     theme(
       plot.background = element_rect(fill = PAL$surface, colour = NA),
       panel.background = element_rect(fill = PAL$surface, colour = NA),

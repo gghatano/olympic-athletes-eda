@@ -6,11 +6,24 @@ REQUIRED_PKGS <- c(
   "olympicAthletes", # データ本体（CRAN）
   "dplyr", "tidyr", "stringr", "forcats", # データ加工
   "ggplot2", "scales", # 可視化
-  "ragg" # PNG 出力（フォント描画が安定する）
+  "ragg", "systemfonts", # PNG 出力とフォント解決
+  "commonmark" # site/build_site.R の Markdown -> HTML 変換
 )
 
-ensure_packages <- function(pkgs = REQUIRED_PKGS,
-                            repos = "https://cloud.r-project.org") {
+# 既に repos が設定されていればそれを使う。
+# CI では Posit Public Package Manager が設定されており、Linux 向けの
+# ビルド済みバイナリが降ってくる。ここで CRAN を直接指定してしまうと
+# ソースからのビルドになって桁違いに遅くなる。
+default_repos <- function() {
+  configured <- getOption("repos")
+  cran <- configured[["CRAN"]]
+  if (!is.null(cran) && !is.na(cran) && nzchar(cran) && cran != "@CRAN@") {
+    return(configured)
+  }
+  c(CRAN = "https://cloud.r-project.org")
+}
+
+ensure_packages <- function(pkgs = REQUIRED_PKGS, repos = default_repos()) {
   missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
   if (length(missing) > 0) {
     message("インストールします: ", paste(missing, collapse = ", "))

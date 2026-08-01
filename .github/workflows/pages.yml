@@ -1,0 +1,99 @@
+name: Build and deploy site
+
+# 図・レポート・サイトを CI で作り直してから Pages に出す。
+# 成果物（figures/ と reports/eda-report.md）はリポジトリにもコミットされているが、
+# ここで再生成することで「スクリプトを直したのに図が古い」状態を防ぎ、
+# 同時に R スクリプトが壊れていないかの検査も兼ねる。
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# デプロイの取りこぼしを避けるため、進行中のものはキャンセルしない
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ランナーには日本語フォントが入っていない。
+      # 入れずに描画すると図のラベルが全て豆腐文字になる
+      # （R/theme_olympic.R はフォントが無ければ失敗するようにしてある）。
+      - name: システム依存と日本語フォントを入れる
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            fonts-noto-cjk \
+            libfontconfig1-dev libfreetype6-dev \
+            libpng-dev libtiff-dev libjpeg-dev \
+            libharfbuzz-dev libfribidi-dev
+          fc-cache -f
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          # Posit Public Package Manager を使う。
+          # Linux 向けのビルド済みバイナリが降ってくるので、
+          # ggplot2 等をソースからビルドせずに済む。
+          use-public-rspm: true
+
+      - name: R パッケージをキャッシュする
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: ${{ runner.os }}-r-${{ hashFiles('R/setup.R') }}
+          restore-keys: ${{ runner.os }}-r-
+
+      - name: 依存パッケージを入れる
+        run: Rscript -e 'source("R/setup.R"); ensure_packages()'
+
+      - name: 図を生成する
+        run: Rscript run_all.R
+
+      - name: レポートを生成する
+        run: Rscript reports/render.R
+
+      - name: サイトを生成する
+        run: Rscript site/build_site.R
+
+      # 生成物が意図通りか最低限の確認をする。
+      # 空のサイトをそのままデプロイしてしまう事故を防ぐ。
+      - name: 生成物を検査する
+        run: |
+          test -f _site/index.html
+          test -f _site/reports/eda-report.html
+          test -f _site/assets/style.css
+          n=$(ls _site/figures/*.png | wc -l)
+          echo "figures: $n"
+          test "$n" -eq 15
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  # Pages への公開は master への push のときだけ行う。
+  # pull_request ではビルドの成否確認までに留める。
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
