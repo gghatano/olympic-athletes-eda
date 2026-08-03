@@ -13,6 +13,8 @@
 #   2. その差の値を **競技ごと**に集め、箱ひげ図で分布として見る。
 #      点推定 1 個ではなく「大会をまたいでどれくらい安定して差が出るか」まで見える。
 #
+# 有意性の判定は、セル平均どうしの素朴な t 検定ではなく、
+# 選手行を単位にした固定効果回帰で行う（下の注参照）。
 # 身長が概ね揃う 1960-2016 に限定する（BODY_YEARS）。
 
 source("R/setup.R")
@@ -52,36 +54,64 @@ message("  対象セル: ", format(nrow(cells), big.mark = ","), " / ",
         n_distinct(cells$sport), " 競技（メダリスト", MIN_MED,
         "人以上・非メダリスト", MIN_NON, "人以上のセル）")
 
-# --- 競技ごとの要約（箱ひげに載せる競技を絞る） -----------------------------
-# 各セルを 1 標本とみなし、差の平均が 0 と離れているかを t 検定で見る。
-# セルは (大会 × 種目 × 性別) で互いに重なりが無いので、素の t 検定で足りる。
-sport_stats <- cells |>
+# --- 競技ごとの有意性: セル固定効果 + 選手クラスタ頑健標準誤差 ---------------
+# セル平均どうしを素朴に t 検定すると独立性を仮定してしまうが、同じ選手が
+# 複数のセルに跨がる（メダリスト行の約半数が複数回メダルの選手）ため、
+# 実際にはセル間に相関がある。そこで選手行を単位に、身長を (大会 × 種目 × 性別)
+# のセル内で除去（= 年度内の引き算に相当）したうえで is_medalist に回帰し、
+# 選手 id をクラスタとした頑健標準誤差 (CR1) で評価する。
+# 05 が団体競技のチーム相関をクラスタで扱ったのと同じ発想を、選手の反復出場に当てる。
+fe_cluster_gap <- function(x) {
+  x <- x |>
+    group_by(cell) |>
+    mutate(hy = height - mean(height), mx = m - mean(m)) |>
+    ungroup()
+  denom <- sum(x$mx^2)
+  if (denom <= 0) return(tibble(est = NA_real_, se = NA_real_))
+  beta <- sum(x$hy * x$mx) / denom
+  resid <- x$hy - beta * x$mx
+  meat <- 0
+  for (ix in split(seq_len(nrow(x)), x$id)) {
+    meat <- meat + sum(x$mx[ix] * resid[ix])^2
+  }
+  G <- n_distinct(x$id); n <- nrow(x); k <- 1 + n_distinct(x$cell)
+  adj <- (G / (G - 1)) * ((n - 1) / max(n - k, 1))
+  tibble(est = beta, se = sqrt(adj * meat / denom^2))
+}
+
+# 箱ひげに載せる競技（セル数 >= MIN_CELLS）と、その中央値（並び順に使う）
+sport_cells <- cells |>
   group_by(sport) |>
-  filter(n() >= MIN_CELLS) |>
-  group_modify(~ {
-    ci <- tryCatch(t.test(.x$gap)$conf.int, error = function(e) c(NA_real_, NA_real_))
-    tibble(
-      n_cells = nrow(.x),
-      gap_median = median(.x$gap),
-      gap_mean = mean(.x$gap),
-      ci_lo = ci[1], ci_hi = ci[2]
-    )
-  }) |>
+  summarise(gap_median = median(gap), n_cells = n(), .groups = "drop") |>
+  filter(n_cells >= MIN_CELLS)
+
+# 対象セルに属する選手行だけを取り出して固定効果回帰にかける
+rows <- body |>
+  semi_join(cells, by = c("sport", "event", "games", "year", "season", "sex")) |>
+  semi_join(sport_cells, by = "sport") |>
+  mutate(cell = paste(event, games, sex), m = as.numeric(is_medalist))
+
+sport_stats <- rows |>
+  group_by(sport) |>
+  group_modify(~ fe_cluster_gap(.x)) |>
   ungroup() |>
+  left_join(sport_cells, by = "sport") |>
   mutate(
+    lo = est - 1.96 * se,
+    hi = est + 1.96 * se,
     verdict = case_when(
-      ci_lo > 0 ~ "背が高いほうが有利",
-      ci_hi < 0 ~ "背が低いほうが有利",
-      TRUE      ~ "差がはっきりしない"
+      lo > 0 ~ "背が高いほうが有利",
+      hi < 0 ~ "背が低いほうが有利",
+      TRUE   ~ "差がはっきりしない"
     ),
     verdict = factor(verdict, levels = c("背が高いほうが有利", "背が低いほうが有利",
                                          "差がはっきりしない"))
   )
 
-n_pos <- sum(sport_stats$ci_lo > 0, na.rm = TRUE)
-n_neg <- sum(sport_stats$ci_hi < 0, na.rm = TRUE)
+n_pos <- sum(sport_stats$lo > 0, na.rm = TRUE)
+n_neg <- sum(sport_stats$hi < 0, na.rm = TRUE)
 message("  箱ひげ対象 ", nrow(sport_stats), " 競技 / 高身長が有利 ", n_pos,
-        " / 低身長が有利 ", n_neg)
+        " / 低身長が有利 ", n_neg, "（選手idクラスタ頑健SE）")
 
 # --- 図1: 競技ごとの身長差の分布（箱ひげ） -----------------------------------
 plot_cells <- cells |>
@@ -112,7 +142,8 @@ p1 <- ggplot(plot_cells, aes(gap, sport, fill = verdict)) +
     x = "身長差（メダリスト − 非メダリスト、大会 × 種目 × 性別ごと）", y = NULL,
     caption = paste0(
       SOURCE_CAPTION,
-      "\n色は各競技のセル平均の 95% 信頼区間が 0 を跨ぐかで決めている。箱は競技内のセル分布（中央値・四分位）。",
+      "\n色は各競技の身長差の 95% 信頼区間が 0 を跨ぐかで決めている",
+      "（大会 × 種目 × 性別を固定効果、選手 id をクラスタとした頑健標準誤差）。箱は競技内のセル分布。",
       "\nこれは「その種目に出られた選手の中での傾向」であり因果ではない。体格に恵まれない選手はそもそも出場していない。"
     )
   ) +
@@ -122,50 +153,59 @@ save_fig(p1, "body_medalist_yearly_gap.png", height = 7.5)
 
 # --- 図2: 背は伸びたが、大会内の差は変わらない -------------------------------
 # 方法の肝（年度内で引けば時代が消える）を 1 枚で示す。
-# 夏冬は競技構成が違い 1994 年以降は開催年もずれるので、必ず分ける。
+# 身長は男女で 13cm ほど違い、女子種目の増加で出場者の男女比も変わるため、
+# 男女を混ぜると伸びが相殺されて見える。性別で分けて描く。
+# 夏冬も競技構成が違い 1994 年以降は開催年もずれるので、必ず分ける。
+HEIGHT_LABEL <- "選手の身長（中央値, cm）"
+GAP_LABEL    <- "メダリストの身長差（大会内・中央値, cm）"
+
 height_by_year <- body |>
-  group_by(season, year) |>
+  group_by(season, year, sex) |>
   summarise(value = median(height), .groups = "drop") |>
-  mutate(metric = "選手全体の身長（中央値, cm）")
+  mutate(metric = HEIGHT_LABEL)
 
 gap_by_year <- cells |>
-  group_by(season, year) |>
+  group_by(season, year, sex) |>
   summarise(value = median(gap), .groups = "drop") |>
-  mutate(metric = "メダリストの身長差（大会内・中央値, cm）")
+  mutate(metric = GAP_LABEL)
 
-metric_levels <- c("選手全体の身長（中央値, cm）",
-                   "メダリストの身長差（大会内・中央値, cm）")
+metric_levels <- c(HEIGHT_LABEL, GAP_LABEL)
 trend <- bind_rows(height_by_year, gap_by_year) |>
   mutate(metric = factor(metric, levels = metric_levels))
 
 # 差の側にだけ 0 の基準線を引く（facet_grid は欠けた面変数を全パネルに描く）
-zero_ref <- tibble(metric = factor(metric_levels[2], levels = metric_levels), y = 0)
+zero_ref <- tibble(metric = factor(GAP_LABEL, levels = metric_levels), y = 0)
 
-# 見出し用: 夏季で身長が何 cm 伸びたか（端点の大会差）
-summer_h <- filter(height_by_year, season == "Summer")
-h_gain <- summer_h$value[which.max(summer_h$year)] -
-  summer_h$value[which.min(summer_h$year)]
+# 見出し用: 夏季で身長が男女それぞれ何 cm 伸びたか（端点の大会差）
+gain <- height_by_year |>
+  filter(season == "Summer") |>
+  group_by(sex) |>
+  summarise(g = value[which.max(year)] - value[which.min(year)], .groups = "drop")
+gain_txt <- paste(sprintf("%s %+.0f cm",
+                          ifelse(gain$sex == "Women", "女性", "男性"), gain$g),
+                  collapse = " / ")
 
-p2 <- ggplot(trend, aes(year, value, colour = season)) +
+p2 <- ggplot(trend, aes(year, value, colour = sex)) +
   geom_hline(data = zero_ref, aes(yintercept = y), inherit.aes = FALSE,
              colour = PAL$axis, linewidth = 0.5) +
   geom_line(linewidth = 0.9) +
   geom_point(size = 1.1) +
   facet_grid(metric ~ season, scales = "free_y", switch = "y") +
-  scale_colour_olympic(guide = "none") +
+  scale_colour_olympic(name = NULL) +
   scale_x_continuous(breaks = seq(1960, 2016, 16)) +
   labs(
-    title = "選手の身長は伸びたが、同じ大会の中でのメダリストの高さは変わらない",
+    title = "選手の身長は男女とも伸びたが、同じ大会の中でのメダリストの高さは変わらない",
     subtitle = paste0(
-      "上段＝出場選手全体の身長の中央値（夏季で ", BODY_YEARS[1], "→", BODY_YEARS[2],
-      " に約 ", sprintf("%+.0f", h_gain), " cm）。\n",
+      "上段＝出場選手の身長の中央値（夏季で ", BODY_YEARS[1], "→", BODY_YEARS[2],
+      " に ", gain_txt, "）。\n",
       "下段＝各大会内で測ったメダリストの身長差の中央値。時代とともに全員が大型化しても、",
       "その中の相対的な差は一定に留まる。\nだから大会内で引き算をすれば、時代の影響を落として優位だけを取り出せる。"
     ),
     x = NULL, y = NULL,
     caption = paste0(
       SOURCE_CAPTION,
-      "\n夏季と冬季は競技構成が違い、1994 年以降は開催年もずれるため分けて描いている。"
+      "\n身長は男女で大きく違い出場者の男女比も時代で変わるため性別で分ける。",
+      "夏季と冬季も競技構成が違い、1994 年以降は開催年もずれるため分けて描いている。"
     )
   ) +
   theme_olympic() +
