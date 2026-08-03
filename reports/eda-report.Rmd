@@ -117,6 +117,62 @@ bind_rows(
 > 団体競技はチーム全員が同時にメダリストになるため、
 > (大会 × 種目 × NOC) をクラスタとした頑健標準誤差を使っている。
 
+### 別の測り方でも結論は動かない — 大会の中で引き算する
+
+上の図は種目 × 性別 × 年代のセル内で z 化するという、やや手の込んだ標準化を
+経ている。もっと素朴なやり方でも同じ結論に届くかを確かめておく。
+
+**同じ大会・同じ種目・同じ性別**の中だけで、メダリストの平均身長から
+非メダリストの平均身長を引く。同じ年に競った相手との差なので、時代による
+大型化はそのまま相殺される。同じ種目に閉じているので、種目構成の偏りも入らない。
+こうして得た差の値（1 大会 1 種目 1 値）を競技ごとに集め、分布として見る。
+
+![](../figures/body_medalist_yearly_gap.png)
+
+```{r yearly-gap}
+# analysis/10_body_medalist_yearly.R と同じ手続きを再現する
+cells <- athletes |>
+  filter(year >= BODY_YEARS[1], year <= BODY_YEARS[2],
+         !is.na(height), height >= 120, height <= 230) |>
+  group_by(sport, event, games, year, season, sex) |>
+  summarise(n_med = sum(is_medalist), n_non = sum(!is_medalist),
+            h_med = mean(height[is_medalist]), h_non = mean(height[!is_medalist]),
+            .groups = "drop") |>
+  filter(n_med >= 3, n_non >= 5) |>
+  mutate(gap = h_med - h_non)
+
+sport_stats <- cells |>
+  group_by(sport) |>
+  filter(n() >= 30) |>
+  group_modify(~ {
+    ci <- t.test(.x$gap)$conf.int
+    tibble(n_cells = nrow(.x), gap_median = median(.x$gap),
+           ci_lo = ci[1], ci_hi = ci[2])
+  }) |>
+  ungroup()
+
+n_pos <- sum(sport_stats$ci_lo > 0)
+n_neg <- sum(sport_stats$ci_hi < 0)
+```
+
+`r nrow(sport_stats)` 競技のうち、差の平均の 95% 信頼区間が 0 の右に収まるのが
+`r n_pos` 競技、左に収まるのが `r n_neg` 競技。順位も 1 章とそのまま重なり、
+**競泳が中央値 `r sprintf("%+.1f", sport_stats$gap_median[sport_stats$sport == "Swimming"])` cm で突出**し、
+逆に **体操が最も深く負に振れる**（中央値 `r sprintf("%+.1f", sport_stats$gap_median[sport_stats$sport == "Gymnastics"])` cm）。
+z 化という道具を使わなくても同じ地図が描けるということは、この差が
+手続きの副産物ではなく、データに元から入っている構造だと示している。
+
+箱の縦の広がりにも意味がある。競泳やテニスは大会をまたいで安定して
+プラス側に出るのに対し、射撃や体操はセルごとのばらつきが大きい。
+点推定 1 個では見えなかった「差の安定度」が分布として読める。
+
+![](../figures/body_height_vs_gap_time.png)
+
+この引き算がなぜ時代を落とせるのかは、上の図が示している。出場選手全体の
+身長は半世紀で伸びているが（左上→右上）、同じ大会の中で測ったメダリストの
+差はほぼ一定に留まる（下段）。全員が大型化しても相対的な差は動かないので、
+大会内で引けば時代の影響だけが消える。
+
 ---
 
 ## 2. 競技は体格の平面上に並ぶ
