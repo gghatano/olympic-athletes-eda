@@ -293,7 +293,7 @@ expect("消えた競技のうち最多実施", gone$sport[which.max(gone$n_editi
 
 # --- 図の枚数（README・ワークフロー） ----------------------------------------
 expect("figures/ の PNG 枚数",
-       length(list.files("figures", pattern = "\\.png$")), 23)
+       length(list.files("figures", pattern = "\\.png$")), 24)
 
 # --- 結果 --------------------------------------------------------------------
 message("")
