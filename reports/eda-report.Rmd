@@ -131,9 +131,11 @@ bind_rows(
 
 ```{r yearly-gap}
 # analysis/10_body_medalist_yearly.R と同じ手続きを再現する
-cells <- athletes |>
+body10 <- athletes |>
   filter(year >= BODY_YEARS[1], year <= BODY_YEARS[2],
-         !is.na(height), height >= 120, height <= 230) |>
+         !is.na(height), height >= 120, height <= 230)
+
+cells <- body10 |>
   group_by(sport, event, games, year, season, sex) |>
   summarise(n_med = sum(is_medalist), n_non = sum(!is_medalist),
             h_med = mean(height[is_medalist]), h_non = mean(height[!is_medalist]),
@@ -141,26 +143,51 @@ cells <- athletes |>
   filter(n_med >= 3, n_non >= 5) |>
   mutate(gap = h_med - h_non)
 
-sport_stats <- cells |>
+sport_cells <- cells |>
   group_by(sport) |>
-  filter(n() >= 30) |>
-  group_modify(~ {
-    ci <- t.test(.x$gap)$conf.int
-    tibble(n_cells = nrow(.x), gap_median = median(.x$gap),
-           ci_lo = ci[1], ci_hi = ci[2])
-  }) |>
-  ungroup()
+  summarise(gap_median = median(gap), n_cells = n(), .groups = "drop") |>
+  filter(n_cells >= 30)
 
-n_pos <- sum(sport_stats$ci_lo > 0)
-n_neg <- sum(sport_stats$ci_hi < 0)
+# 有意性はセル平均の t 検定ではなく、選手行を単位にした固定効果回帰で。
+# 身長を (大会 × 種目 × 性別) セル内で除去し is_medalist に回帰、選手 id でクラスタ。
+fe_cluster_gap <- function(x) {
+  x <- x |> group_by(cell) |>
+    mutate(hy = height - mean(height), mx = m - mean(m)) |> ungroup()
+  denom <- sum(x$mx^2); if (denom <= 0) return(tibble(est = NA_real_, se = NA_real_))
+  beta <- sum(x$hy * x$mx) / denom; resid <- x$hy - beta * x$mx
+  meat <- 0
+  for (ix in split(seq_len(nrow(x)), x$id)) meat <- meat + sum(x$mx[ix] * resid[ix])^2
+  G <- n_distinct(x$id); n <- nrow(x); k <- 1 + n_distinct(x$cell)
+  adj <- (G / (G - 1)) * ((n - 1) / max(n - k, 1))
+  tibble(est = beta, se = sqrt(adj * meat / denom^2))
+}
+
+sport_stats <- body10 |>
+  semi_join(cells, by = c("sport", "event", "games", "year", "season", "sex")) |>
+  semi_join(sport_cells, by = "sport") |>
+  mutate(cell = paste(event, games, sex), m = as.numeric(is_medalist)) |>
+  group_by(sport) |>
+  group_modify(~ fe_cluster_gap(.x)) |>
+  ungroup() |>
+  left_join(sport_cells, by = "sport") |>
+  mutate(lo = est - 1.96 * se, hi = est + 1.96 * se)
+
+n_pos <- sum(sport_stats$lo > 0)
+n_neg <- sum(sport_stats$hi < 0)
 ```
 
-`r nrow(sport_stats)` 競技のうち、差の平均の 95% 信頼区間が 0 の右に収まるのが
+`r nrow(sport_stats)` 競技のうち、身長差の 95% 信頼区間が 0 の右に収まるのが
 `r n_pos` 競技、左に収まるのが `r n_neg` 競技。順位も 1 章とそのまま重なり、
 **競泳が中央値 `r sprintf("%+.1f", sport_stats$gap_median[sport_stats$sport == "Swimming"])` cm で突出**し、
-逆に **体操が最も深く負に振れる**（中央値 `r sprintf("%+.1f", sport_stats$gap_median[sport_stats$sport == "Gymnastics"])` cm）。
+逆に **体操が唯一はっきり負に振れる**（中央値 `r sprintf("%+.1f", sport_stats$gap_median[sport_stats$sport == "Gymnastics"])` cm）。
 z 化という道具を使わなくても同じ地図が描けるということは、この差が
 手続きの副産物ではなく、データに元から入っている構造だと示している。
+
+> **有意性は素朴な t 検定では測れない。** 同じ選手が複数のセルに跨がる
+> （メダリスト行の約半数が複数回メダルの選手）ため、セルは独立ではない。
+> 身長を (大会 × 種目 × 性別) セル内で除去してから is_medalist に回帰し、
+> 選手 id をクラスタとした頑健標準誤差で判定している。05 が団体競技の
+> チーム相関を扱ったのと同じ発想を、選手の反復出場に当てたもの。
 
 箱の縦の広がりにも意味がある。競泳やテニスは大会をまたいで安定して
 プラス側に出るのに対し、射撃や体操はセルごとのばらつきが大きい。
@@ -168,10 +195,11 @@ z 化という道具を使わなくても同じ地図が描けるということ
 
 ![](../figures/body_height_vs_gap_time.png)
 
-この引き算がなぜ時代を落とせるのかは、上の図が示している。出場選手全体の
-身長は半世紀で伸びているが（左上→右上）、同じ大会の中で測ったメダリストの
+この引き算がなぜ時代を落とせるのかは、上の図が示している。**男女それぞれの**
+身長は半世紀で 7cm 前後伸びているが（上段）、同じ大会の中で測ったメダリストの
 差はほぼ一定に留まる（下段）。全員が大型化しても相対的な差は動かないので、
-大会内で引けば時代の影響だけが消える。
+大会内で引けば時代の影響だけが消える。男女を混ぜると女子種目の増加で伸びが
+相殺されて見えるため、性別で分けて描いている。
 
 ---
 
