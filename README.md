@@ -9,18 +9,9 @@
 競技ごとに分布として見た図。大会内で引くので時代による大型化は相殺される。
 読み方は [レポート](reports/eda-report.md) に。
 
-🌐 **<https://gghatano.github.io/olympic-athletes-eda/>**
+## 概要 — 何を分析したか
 
-- 📊 **[レポート](reports/eda-report.md)** — 分かったこと。まずここ
-- 🔍 [データの癖](docs/data-quality.md) — 何が言えて何が言えないか
-- 📖 [データ辞書](docs/data-dictionary.md) / [前処理の方針](docs/preprocessing.md) / [分析候補](docs/analysis-ideas.md)
-- 🔧 [開発](docs/engineering.md) — 再現手順・構成・公開の仕組み
-
----
-
-## 分析もくじ
-
-何を分析したかを、観点の大分類ごとに。各見出しは [レポート](reports/eda-report.md) の該当節へ飛ぶ。
+観点の大分類ごとに。各見出しは [レポート](reports/eda-report.md) の該当節へ飛ぶ。
 
 ### 🏃 からだとパフォーマンス
 体格や体型が勝敗にどう効くか。同じ競技・同じ大会の中で比べる。
@@ -50,6 +41,15 @@
 
 ### 🔭 これから
 - [次に掘るべき問い](reports/eda-report.md#8-次に掘るべき問い) — 未着手の分析候補
+
+---
+
+🌐 **<https://gghatano.github.io/olympic-athletes-eda/>**
+
+- 📊 **[レポート](reports/eda-report.md)** — 分かったこと。まずここ
+- 🔍 [データの癖](docs/data-quality.md) — 何が言えて何が言えないか
+- 📖 [データ辞書](docs/data-dictionary.md) / [前処理の方針](docs/preprocessing.md) / [分析候補](docs/analysis-ideas.md)
+- 🔧 [開発](docs/engineering.md) — 再現手順・構成・公開の仕組み
 
 ---
 
